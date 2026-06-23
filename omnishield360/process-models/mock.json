@@ -1,0 +1,59 @@
+{
+  "mockRules": [
+    {
+      "sourceActivityId": "Task_DU_Extraction",
+      "mockActivityId": "Mock_DU_Extraction_Stub",
+      "description": "Overrides the IXP OCR engine to return confidence score from test fixture.",
+      "outputs": {
+        "out_Confidence": "execution.getVariable('mock_ocr_confidence')",
+        "out_ExtractedText": "execution.getVariable('raw_chart_data')"
+      }
+    },
+    {
+      "sourceActivityId": "Task_AI_Trust_Masking",
+      "mockActivityId": "Mock_PII_Masking_Stub",
+      "description": "Simulates in-flight PII tokenization without calling the live Trust Layer proxy.",
+      "outputs": {
+        "AnonymizedChartText": "[MEMBER_TOKEN_01] visited clinic on [DOB_TOKEN_0].",
+        "TokenMap": "{\"[MEMBER_TOKEN_01]\": \"Jane Smith\", \"[DOB_TOKEN_0]\": \"11/20/1992\"}"
+      }
+    },
+    {
+      "sourceActivityId": "Task_PCP_Crawler",
+      "mockActivityId": "Mock_PCP_Crawler_Stub",
+      "description": "Fakes EHR API referral lookup. Returns active referral for all Scenario 1 claims.",
+      "outputs": {
+        "out_IsReferralLinked": true,
+        "out_ReferralID": "REF-8821",
+        "out_PCPName": "Dr. Aisha Patel"
+      }
+    },
+    {
+      "sourceActivityId": "Task_SSDI_Check",
+      "mockActivityId": "Mock_SSDI_Lookup_Stub",
+      "description": "Intercepts real DMF clearinghouse API. Returns TRUE for SSN 994-00-1234 (Scenario 3).",
+      "outputs": {
+        "isDeceased": "execution.getVariable('ssn_tokenized') === '994-00-1234'"
+      }
+    },
+    {
+      "sourceActivityId": "Task_Deduplication",
+      "mockActivityId": "Mock_Dedup_Stub",
+      "description": "Returns duplicate=TRUE for Scenario 5 fingerprint matching.",
+      "outputs": {
+        "isDuplicate": "execution.getVariable('mock_is_duplicate') === true"
+      }
+    },
+    {
+      "sourceActivityId": "Task_COB_Engine",
+      "mockActivityId": "Mock_COB_Stub",
+      "description": "Returns dual coverage flag and Birthday Rule payer split for Scenario 4.",
+      "outputs": {
+        "dualCoverage": "execution.getVariable('mock_dual_coverage') === true",
+        "primaryPayer": "Cigna Dental",
+        "secondaryPayer": "BlueCross CI",
+        "ruleApplied": "BIRTHDAY_RULE"
+      }
+    }
+  ]
+}
