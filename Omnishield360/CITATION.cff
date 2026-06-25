@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use or reference OmniShield 360, please cite this project."
+title: "OmniShield 360"
+type: software
+authors:
+  - family-names: "Panigrahy"
+    given-names: "Aditya"
+    alias: "jagaadi"
+version: 1.0.0
+date-released: 2026-06-26
+license: Apache-2.0
+repository-code: "https://github.com/jagaadi/Omnishield360"
+url: "https://github.com/jagaadi/Omnishield360"
+abstract: >-
+  A UiPath Maestro Case solution for long-lived, exception-heavy healthcare
+  claims, coordinating coded agents, robots, API workflows, and accountable
+  human decisions.
+keywords:
+  - UiPath
+  - Maestro Case
+  - agentic case management
+  - healthcare claims
+  - human in the loop

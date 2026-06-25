@@ -1,0 +1,246 @@
+{
+  "artifactType": "maestro-case-private-preview-build-spec",
+  "artifactVersion": "1.0",
+  "name": "OmniShield 360 Claim Resolution Case",
+  "owner": "Aditya Panigrahy",
+  "repository": "https://github.com/jagaadi/Omnishield360",
+  "ownerProfile": "https://www.linkedin.com/in/aditya-narayan-panigrahy/",
+  "license": "Apache-2.0",
+  "createdFor": "UiPath AgentHack 2026 - Track 1: Agentic Case Management",
+  "description": "Case Plan specification for long-lived, exception-heavy healthcare claims.",
+  "previewCompatibility": {
+    "caseEntitySource": "WAIT_FOR_CONNECTOR_TRIGGER",
+    "nativeDataFabricCaseEntityRequired": false,
+    "stageRoleEnforcementRequired": false,
+    "notes": [
+      "The private-preview guide identifies native Data Fabric case-entity support as a planned extension.",
+      "The private-preview guide identifies stage-aware role/access enforcement as a planned extension.",
+      "Personas below are implemented through human-task assignment and folder permissions when native stage permissions are unavailable."
+    ]
+  },
+  "caseKey": {
+    "type": "EXTERNAL",
+    "field": "claimId",
+    "displayPrefix": "CLM"
+  },
+  "trigger": {
+    "type": "WAIT_FOR_CONNECTOR",
+    "event": "ClaimSubmitted",
+    "payloadSchema": "case-models/case-entity-schema.json",
+    "description": "Trigger payload fields become case fields across all stages and tasks."
+  },
+  "caseSla": {
+    "target": "P5D",
+    "atRisk": "P4D",
+    "atRiskRecipient": "Senior Case Manager",
+    "breachRecipient": "Claims Operations Manager"
+  },
+  "personas": [
+    "Intake Specialist",
+    "Clinical Coordinator",
+    "Clinical Director",
+    "Fraud Investigator",
+    "COB Specialist",
+    "Claims Adjuster",
+    "Legal Estates Specialist",
+    "Senior Case Manager"
+  ],
+  "primaryStages": [
+    {
+      "name": "Intake",
+      "entryCondition": "CaseCreated",
+      "exitCondition": "intakeStatus == 'VERIFIED'",
+      "reentryCondition": "decision == 'MISSING_INTAKE_REPORTS'",
+      "skipRule": null,
+      "sla": {"target": "PT4H", "warning": "PT3H", "recipient": "Intake Specialist"},
+      "tasks": [
+        {
+          "name": "Extract claim details",
+          "type": "RPA",
+          "implementation": "UiPath IXP / Document Understanding",
+          "retry": 2,
+          "idempotencyKey": "claimId + ':extract'"
+        },
+        {
+          "name": "Assess intake and isolate PHI",
+          "type": "AI_AGENT",
+          "implementation": "intake_assessment",
+          "inputs": ["claim trigger payload"],
+          "outputs": ["intakeStatus", "ocrConfidence", "validationRequired", "anonymizedChartData", "phiTokenCount", "riskTier"]
+        },
+        {
+          "name": "Validate extracted claim",
+          "type": "HUMAN_ACTION_APP",
+          "assignee": "Intake Specialist",
+          "condition": "validationRequired == true",
+          "sla": "PT2H",
+          "outputs": ["intakeStatus", "validationRequired", "reworkReason"]
+        },
+        {
+          "name": "Lookup policy and historical claims",
+          "type": "API_WORKFLOW_INTEGRATION",
+          "condition": "intakeStatus == 'VERIFIED'",
+          "idempotencyKey": "claimId + ':lookup'"
+        }
+      ]
+    },
+    {
+      "name": "Review",
+      "entryCondition": "intakeStatus == 'VERIFIED'",
+      "exitCondition": "decision in ['APPROVE_FOR_SETTLEMENT', 'REJECT', 'REQUEST_INFORMATION', 'FRAUD_HOLD', 'LEGAL_HOLD']",
+      "reentryCondition": "reworkReason in ['REFERRAL_RECEIVED', 'DOCUMENTS_RECEIVED', 'REINVESTIGATE']",
+      "skipRule": null,
+      "sla": {"target": "P2D", "warning": "PT36H", "recipient": "Senior Case Manager"},
+      "tasks": [
+        {
+          "name": "Referral and medical necessity review",
+          "type": "AI_AGENT",
+          "implementation": "clinical_assessment",
+          "outputs": ["clinicalStatus", "referralStatus", "necessityStatus", "necessityConfidence", "riskTier"]
+        },
+        {
+          "name": "Clinical Director verification",
+          "type": "HUMAN_ACTION_APP",
+          "assignee": "Clinical Director",
+          "condition": "clinicalStatus == 'DIRECTOR_REVIEW'",
+          "outputs": ["clinicalStatus", "necessityStatus", "decision", "reworkReason"]
+        },
+        {
+          "name": "Fraud and COB assessment",
+          "type": "AI_AGENT",
+          "implementation": "adjudication_assessment",
+          "outputs": ["adjudicationStatus", "duplicateDetected", "cobReviewRequired", "cobDetails", "riskTier"]
+        },
+        {
+          "name": "COB specialist verification",
+          "type": "HUMAN_ACTION_APP",
+          "assignee": "COB Specialist",
+          "condition": "cobReviewRequired == true",
+          "outputs": ["adjudicationStatus", "cobReviewRequired", "decision", "reworkReason"]
+        },
+        {
+          "name": "Case review subprocess",
+          "type": "MAESTRO_AGENTIC_PROCESS",
+          "implementation": "process-models/process-model.bpmn",
+          "condition": "riskTier in ['HIGH', 'CRITICAL']",
+          "description": "Optional structured child process; not the outer claim lifecycle."
+        }
+      ]
+    },
+    {
+      "name": "Settlement",
+      "entryCondition": "decision == 'APPROVE_FOR_SETTLEMENT'",
+      "exitCondition": "syncStatus in ['SYNCED', 'STAGED'] || decision in ['REJECT', 'LEGAL_HOLD']",
+      "reentryCondition": "reworkReason == 'SETTLEMENT_CORRECTION'",
+      "skipRule": "decision in ['REJECT', 'WITHDRAW']",
+      "sla": {"target": "PT8H", "warning": "PT6H", "recipient": "Claims Adjuster"},
+      "tasks": [
+        {
+          "name": "Run compliance shield",
+          "type": "AI_AGENT",
+          "implementation": "compliance_assessment",
+          "outputs": ["complianceStatus", "legalHold", "riskTier", "decision"]
+        },
+        {
+          "name": "Cross-stage Agent-as-Judge",
+          "type": "AI_AGENT",
+          "implementation": "judge_assessment",
+          "condition": "complianceStatus == 'CLEARED'",
+          "outputs": ["judgeStatus", "judgeConflicts", "settlementApprovalRequired", "riskTier"]
+        },
+        {
+          "name": "Claims Adjuster approval",
+          "type": "HUMAN_ACTION_APP",
+          "assignee": "Claims Adjuster",
+          "condition": "judgeStatus == 'CONSISTENT'",
+          "outputs": ["settlementApproved", "settlementStatus", "decision", "reworkReason"]
+        },
+        {
+          "name": "Synchronize approved claim",
+          "type": "API_WORKFLOW_INTEGRATION",
+          "implementation": "settlement_sync",
+          "condition": "settlementApproved == true",
+          "idempotencyKey": "claimId + ':settlement-sync'",
+          "outputs": ["settlementStatus", "syncStatus", "outcome"]
+        }
+      ]
+    },
+    {
+      "name": "Closure",
+      "entryCondition": "syncStatus in ['SYNCED', 'STAGED'] || outcome in ['DENIED', 'WITHDRAWN', 'LEGAL_DISPOSITION']",
+      "exitCondition": "outcome != null && auditPacketCreated == true",
+      "reentryCondition": "reworkReason == 'REOPEN_CASE'",
+      "skipRule": null,
+      "sla": {"target": "PT2H", "warning": "PT90M", "recipient": "Senior Case Manager"},
+      "tasks": [
+        {"name": "Create claim packet", "type": "RPA", "idempotencyKey": "claimId + ':packet'"},
+        {"name": "Generate audit report", "type": "RPA", "idempotencyKey": "claimId + ':audit'"},
+        {"name": "Notify payer and provider", "type": "API_WORKFLOW_INTEGRATION"}
+      ]
+    }
+  ],
+  "secondaryStages": [
+    {
+      "name": "Pending with Provider",
+      "entryConditions": ["decision == 'REQUEST_INFORMATION'", "referralStatus == 'MISSING'"],
+      "exitCondition": "all tasks complete",
+      "exitAction": "RETURN_TO_ORIGIN",
+      "tasks": [
+        {"name": "Request documents or referral", "type": "API_WORKFLOW_INTEGRATION"},
+        {"name": "Wait for provider response", "type": "API_WORKFLOW_INTEGRATION"},
+        {"name": "Review received material", "type": "HUMAN_ACTION_APP", "assignee": "Clinical Coordinator"}
+      ]
+    },
+    {
+      "name": "Fraud Hold",
+      "entryConditions": ["duplicateDetected == true", "decision == 'FRAUD_HOLD'"],
+      "exitCondition": "fraudDisposition in ['CLEAR', 'DENY', 'REWORK']",
+      "exitAction": "MANUAL_NEXT_STAGE_SELECTION",
+      "tasks": [
+        {"name": "Fraud investigator decision", "type": "HUMAN_ACTION_APP", "assignee": "Fraud Investigator"},
+        {"name": "Billing reconciliation robot", "type": "RPA"},
+        {"name": "External evidence request", "type": "API_WORKFLOW_INTEGRATION"}
+      ]
+    },
+    {
+      "name": "Legal Estates Hold",
+      "entryConditions": ["legalHold == true", "decision == 'LEGAL_HOLD'"],
+      "exitCondition": "legalDisposition != null",
+      "exitAction": "MANUAL_NEXT_STAGE_SELECTION",
+      "tasks": [
+        {"name": "Legal Estates disposition", "type": "HUMAN_ACTION_APP", "assignee": "Legal Estates Specialist"},
+        {"name": "Estate evidence packet", "type": "RPA"}
+      ]
+    },
+    {
+      "name": "Denied",
+      "entryConditions": ["decision == 'REJECT'"],
+      "exitCondition": "all tasks complete",
+      "exitAction": "TERMINAL",
+      "tasks": [
+        {"name": "Send denial packet", "type": "API_WORKFLOW_INTEGRATION"},
+        {"name": "Generate denial audit report", "type": "RPA"}
+      ]
+    },
+    {
+      "name": "Withdrawn",
+      "entryConditions": ["ConnectorEvent == 'ClaimWithdrawn'", "action == 'WITHDRAW'"],
+      "exitCondition": "all tasks complete",
+      "exitAction": "TERMINAL",
+      "tasks": [
+        {"name": "Send withdrawal packet", "type": "API_WORKFLOW_INTEGRATION"},
+        {"name": "Generate withdrawal audit report", "type": "RPA"}
+      ]
+    }
+  ],
+  "humanAuthority": [
+    "Accept low-confidence extracted data",
+    "Approve non-routine medical necessity",
+    "Clear or deny a fraud hold",
+    "Confirm ambiguous coordination of benefits",
+    "Record a Legal Estates disposition",
+    "Resolve Agent-as-Judge conflicts",
+    "Approve settlement",
+    "Reopen or manually redirect a case"
+  ]
+}

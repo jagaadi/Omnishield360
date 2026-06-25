@@ -1,0 +1,58 @@
+[project]
+name = "omnishield360-coded-agent"
+version = "1.0.0"
+description = "OmniShield 360: Adaptive Payer-Provider Lifecycle & Anti-Litigation Governance Desk — Powered by UiPath Coded Agents"
+authors = [{ name = "Aditya Panigrahy" }]
+maintainers = [{ name = "Aditya Panigrahy" }]
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+keywords = ["uipath", "maestro", "agentic-case-management", "healthcare-claims", "coded-agents"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
+dependencies = [
+    "opentelemetry-api>=1.27,<2",
+    "uipath>=2.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/jagaadi/Omnishield360"
+Repository = "https://github.com/jagaadi/Omnishield360"
+Issues = "https://github.com/jagaadi/Omnishield360/issues"
+Documentation = "https://github.com/jagaadi/Omnishield360/tree/main/docs"
+LinkedIn = "https://www.linkedin.com/in/aditya-narayan-panigrahy/"
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.10,<2",
+]
+
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build-meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+files = [
+    "src/agents/pii_masker.py",
+    "src/agents/streaming.py",
+    "src/case_management",
+    "src/observability",
+    "src/workflows/schemas.py",
+    "src/workflows/routing.py",
+]
+
+[[tool.mypy.overrides]]
+module = ["uipath.*"]
+ignore_missing_imports = true

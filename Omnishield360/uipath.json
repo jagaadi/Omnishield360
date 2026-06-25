@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "main": "main.py:main",
+    "intake_assessment": "case_workers.py:intake_assessment",
+    "clinical_assessment": "case_workers.py:clinical_assessment",
+    "adjudication_assessment": "case_workers.py:adjudication_assessment",
+    "compliance_assessment": "case_workers.py:compliance_assessment",
+    "judge_assessment": "case_workers.py:judge_assessment",
+    "settlement_sync": "case_workers.py:settlement_sync"
+  }
+}

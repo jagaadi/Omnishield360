@@ -1,0 +1,188 @@
+{
+  "scenarios": [
+    {
+      "id": "SCENARIO_01_HAPPY_PATH_ELECTRONIC",
+      "description": "Standard electronic claim with perfect OCR confidence. All gates clear. Dispatches to ledger sync.",
+      "inputs": {
+        "raw_chart_data": "Patient Name: Jane Smith. DOB: 11/20/1992. Diagnosis: Post-Acute Cardiac Evaluation. Policy Type: Critical Illness.",
+        "active_claim_payload": {
+          "claim_id": "CLM-2026-0001",
+          "ssn_tokenized": "000-00-0000",
+          "member_id": "MBR-001",
+          "provider_id": "PRV-999",
+          "cpt_code": "99213",
+          "service_date": "2026-06-01",
+          "policy_types": ["CRITICAL_ILLNESS"],
+          "billing_action_type": "STANDARD",
+          "coverage_plans": [
+            {"payer_name": "BlueCross", "holder_dob": "03/15/1985", "plan_start_date": "01/01/2020"}
+          ]
+        },
+        "historical_claims_database": [],
+        "mock_ocr_confidence": 0.98
+      },
+      "expected_status": "APPROVED_FOR_INTEGRATION",
+      "expected_risk_tier": "LOW"
+    },
+    {
+      "id": "SCENARIO_02_HANDWRITTEN_LOW_CONFIDENCE",
+      "description": "Scanned handwritten ambulance runsheet. OCR confidence 0.62 forces HITL Validation Station route.",
+      "inputs": {
+        "raw_chart_data": "Patient: Robert Lang. Ambulance transport post trauma 02/14/1975.",
+        "active_claim_payload": {
+          "claim_id": "CLM-2026-0002",
+          "ssn_tokenized": "000-00-0001",
+          "member_id": "MBR-002",
+          "provider_id": "PRV-AMB-01",
+          "cpt_code": "A0429",
+          "service_date": "2026-06-02",
+          "policy_types": ["ACCIDENT"],
+          "billing_action_type": "STANDARD",
+          "coverage_plans": [
+            {"payer_name": "Aetna", "holder_dob": "02/14/1975", "plan_start_date": "01/01/2021"}
+          ]
+        },
+        "historical_claims_database": [],
+        "mock_ocr_confidence": 0.62
+      },
+      "expected_status": "SUSPENDED_DATA_REMEDIATION",
+      "expected_risk_tier": "MEDIUM"
+    },
+    {
+      "id": "SCENARIO_03_COMPLIANCE_DECEASED_LITIGATION_SHIELD",
+      "description": "Member matched on SSDI Death Master File. Circuit breaker fires. All outbound billing frozen. Routes to Legal Estates.",
+      "inputs": {
+        "raw_chart_data": "Patient Name: John Doe. DOB: 05/12/1984. SSN: 994-00-1234.",
+        "active_claim_payload": {
+          "claim_id": "CLM-2026-0003",
+          "ssn_tokenized": "994-00-1234",
+          "member_id": "MBR-003",
+          "provider_id": "PRV-001",
+          "cpt_code": "99214",
+          "service_date": "2026-06-03",
+          "policy_types": ["CRITICAL_ILLNESS"],
+          "billing_action_type": "PAYMENT_MISS_ALERT",
+          "coverage_plans": [
+            {"payer_name": "UnitedHealth", "holder_dob": "05/12/1984", "plan_start_date": "06/01/2018"}
+          ]
+        },
+        "historical_claims_database": [],
+        "mock_ocr_confidence": 0.97
+      },
+      "expected_status": "HALTED_COMPLIANCE_BREACH",
+      "expected_risk_tier": "CRITICAL"
+    },
+    {
+      "id": "SCENARIO_04_DUAL_COVERAGE_COB_BREAK",
+      "description": "Dependent child has two active parent plans. COB engine applies the commercial Birthday Rule.",
+      "inputs": {
+        "raw_chart_data": "Patient Name: Alice Green. DOB: 07/22/1988. Policy: Dental + Critical Illness dual enrollment.",
+        "active_claim_payload": {
+          "claim_id": "CLM-2026-0004",
+          "ssn_tokenized": "000-00-0002",
+          "member_id": "MBR-004",
+          "provider_id": "PRV-002",
+          "cpt_code": "D1110",
+          "service_date": "2026-06-04",
+          "policy_types": ["DENTAL", "CRITICAL_ILLNESS"],
+          "billing_action_type": "STANDARD",
+          "coverage_plans": [
+            {"payer_name": "Cigna Dental", "covered_person_relationship": "DEPENDENT_CHILD", "holder_dob": "07/22/1988", "plan_start_date": "01/01/2022"},
+            {"payer_name": "BlueCross CI",  "covered_person_relationship": "DEPENDENT_CHILD", "holder_dob": "09/11/1990", "plan_start_date": "03/01/2021"}
+          ]
+        },
+        "historical_claims_database": [],
+        "mock_ocr_confidence": 0.95
+      },
+      "expected_status": "SUSPENDED_DUAL_COVERAGE",
+      "expected_risk_tier": "MEDIUM"
+    },
+    {
+      "id": "SCENARIO_05_DUPLICATE_CLAIM_FRAUD",
+      "description": "Incoming claim matches a historical claim fingerprint (same CPT + provider + date + member). Fraud gate triggers.",
+      "inputs": {
+        "raw_chart_data": "Patient Name: Carlos Rivera. DOB: 03/30/1979. Routine office visit follow-up.",
+        "active_claim_payload": {
+          "claim_id": "CLM-2026-0005",
+          "ssn_tokenized": "000-00-0003",
+          "member_id": "MBR-005",
+          "provider_id": "PRV-DUPL-99",
+          "cpt_code": "99213",
+          "service_date": "2026-05-15",
+          "policy_types": ["ACCIDENT"],
+          "billing_action_type": "STANDARD",
+          "coverage_plans": [
+            {"payer_name": "Humana", "holder_dob": "03/30/1979", "plan_start_date": "01/01/2023"}
+          ]
+        },
+        "historical_claims_database": [
+          {
+            "claim_id": "CLM-2026-0005-PREV",
+            "member_id": "MBR-005",
+            "provider_id": "PRV-DUPL-99",
+            "cpt_code": "99213",
+            "service_date": "2026-05-15"
+          }
+        ],
+        "mock_ocr_confidence": 0.96
+      },
+      "expected_status": "SUSPENDED_DUPLICATE_CLAIM",
+      "expected_risk_tier": "HIGH"
+    },
+    {
+      "id": "SCENARIO_07_TRIPLE_COVERAGE",
+      "description": "Three active plans trigger CMS Medicare Secondary Payer precedence followed by supplemental ordering.",
+      "inputs": {
+        "raw_chart_data": "Patient Name: Maria Lopez. DOB: 04/09/1955. Triple coverage: Medicare primary candidate, employer plan, supplemental.",
+        "active_claim_payload": {
+          "claim_id": "CLM-2026-0007",
+          "ssn_tokenized": "000-00-0007",
+          "member_id": "MBR-007",
+          "provider_id": "PRV-007",
+          "cpt_code": "99213",
+          "service_date": "2026-06-07",
+          "policy_types": ["MEDICARE", "CRITICAL_ILLNESS", "DENTAL"],
+          "billing_action_type": "STANDARD",
+          "coverage_plans": [
+            {"payer_name": "Employer PPO",       "payer_type": "EMPLOYER_GHP",        "holder_dob": "04/09/1955", "plan_start_date": "06/01/2018"},
+            {"payer_name": "Medicare",           "payer_type": "MEDICARE",            "holder_dob": "06/15/1955", "plan_start_date": "01/01/2020"},
+            {"payer_name": "Aetna Supplemental", "payer_type": "MEDICARE_SUPPLEMENT", "holder_dob": "08/22/1955", "plan_start_date": "01/01/2019"}
+          ],
+          "coordination_context": {
+            "beneficiary_age": 71,
+            "current_employment": true,
+            "employer_size": 100
+          }
+        },
+        "historical_claims_database": [],
+        "mock_ocr_confidence": 0.96
+      },
+      "expected_status": "SUSPENDED_DUAL_COVERAGE",
+      "expected_risk_tier": "MEDIUM"
+    },
+    {
+      "id": "SCENARIO_06_MEDICAL_NECESSITY_REVIEW",
+      "description": "Non-routine CPT code with AI unavailable. Medical necessity check fails gracefully via rule-based fallback — routes to clinical director.",
+      "inputs": {
+        "raw_chart_data": "Patient Name: Sarah Lee. DOB: 08/03/1986. Procedure: complex spinal fusion revision.",
+        "active_claim_payload": {
+          "claim_id": "CLM-2026-0006",
+          "ssn_tokenized": "000-00-0004",
+          "member_id": "MBR-006",
+          "provider_id": "PRV-NEURO-01",
+          "cpt_code": "22614",
+          "service_date": "2026-06-06",
+          "policy_types": ["CRITICAL_ILLNESS"],
+          "billing_action_type": "STANDARD",
+          "coverage_plans": [
+            {"payer_name": "Aetna", "holder_dob": "08/03/1986", "plan_start_date": "01/01/2021"}
+          ]
+        },
+        "historical_claims_database": [],
+        "mock_ocr_confidence": 0.96
+      },
+      "expected_status": "SUSPENDED_MEDICAL_NECESSITY",
+      "expected_risk_tier": "MEDIUM"
+    }
+  ]
+}

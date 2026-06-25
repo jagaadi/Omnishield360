@@ -1,0 +1,256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions
+  xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:uipath="http://schemas.uipath.com/workflow/bpmn"
+  id="Definitions_OmniShield360"
+  targetNamespace="http://bpmn.io/schema/bpmn"
+  expressionLanguage="http://www.w3.org/1991/JavaScript">
+
+  <bpmn:process
+    id="Process_OmniShield360_Healthcare_Core_Lifecycle"
+    name="OmniShield 360 — Adaptive Payer-Provider Lifecycle"
+    isExecutable="true"
+    uipath:author="Aditya Panigrahy"
+    uipath:version="1.0.0"
+    uipath:project="OmniShield360">
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  START                                                       -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <bpmn:startEvent id="Start_Claim_Intake" name="Mixed Media Intake Triggered&#10;(Electronic Form / Handwritten Scan / API Webhook)">
+      <bpmn:outgoing>Flow_Start_to_DU</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  STAGE 1 — INTAKE &amp; SECURITY ISOLATION                  -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+
+    <bpmn:serviceTask id="Task_DU_Extraction"
+      name="Document Understanding IXP Engine&#10;[Task Type: Service Task]&#10;[Component: UiPath IXP OCR Neural Engine]&#10;[Mode: Handprint + Cursive + Digital PDF]"
+      uipath:component="DocumentUnderstanding_IXP">
+      <bpmn:incoming>Flow_Start_to_DU</bpmn:incoming>
+      <bpmn:outgoing>Flow_DU_to_ConfidenceGate</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Confidence_Check"
+      name="OCR Confidence &gt;= 85%?"
+      default="Flow_Low_Confidence">
+      <bpmn:incoming>Flow_DU_to_ConfidenceGate</bpmn:incoming>
+      <bpmn:outgoing>Flow_High_Confidence</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Low_Confidence</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="Task_Validation_Station"
+      name="UiPath Validation Station (HITL)&#10;[Task Type: User Task]&#10;[Component: UiPath Validation Station]&#10;[Condition: vars.Confidence &lt; 0.85]">
+      <bpmn:incoming>Flow_Low_Confidence</bpmn:incoming>
+      <bpmn:outgoing>Flow_Remediated_to_Trust</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:scriptTask id="Task_AI_Trust_Masking"
+      name="AI Trust Layer — In-Flight PII Masking&#10;[Task Type: Script Task]&#10;[Component: UiPath AI Trust Layer]&#10;[Enforces: HIPAA / PHI Tokenization]"
+      scriptFormat="python">
+      <bpmn:incoming>Flow_High_Confidence</bpmn:incoming>
+      <bpmn:incoming>Flow_Remediated_to_Trust</bpmn:incoming>
+      <bpmn:outgoing>Flow_Trust_to_SystemSync</bpmn:outgoing>
+      <bpmn:script>
+        # src/agents/pii_masker.py:mask_phi_data()
+        anonymized_text, token_map = mask_phi_data(raw_chart_text)
+        execution.setVariable("AnonymizedChartText", anonymized_text)
+        execution.setVariable("TokenMap", json.dumps(token_map))
+      </bpmn:script>
+    </bpmn:scriptTask>
+
+    <bpmn:serviceTask id="Task_System_Sync"
+      name="Core EHR / ERP System Synchronization&#10;[Task Type: Service Task]&#10;[Component: API Workflow via Integration Service]&#10;[Target: Epic / Facets / QNXT]">
+      <bpmn:incoming>Flow_Trust_to_SystemSync</bpmn:incoming>
+      <bpmn:outgoing>Flow_Sync_to_PolicyMap</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:businessRuleTask id="Task_Policy_Mapper"
+      name="Multi-Line Policy Type Attribution&#10;[Task Type: Business Rule Task]&#10;[Component: DMN Engine]&#10;[Lines: Accident / Critical Illness / Dental]">
+      <bpmn:incoming>Flow_Sync_to_PolicyMap</bpmn:incoming>
+      <bpmn:outgoing>Flow_PolicyMap_to_PCP</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  STAGE 2 — CLINICAL CARE &amp; AUTHORIZATION GATES          -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+
+    <bpmn:serviceTask id="Task_PCP_Crawler"
+      name="PCP Referral Verification Crawler&#10;[Task Type: Service Task]&#10;[Component: Coded Agent — Python SDK]&#10;[src/agents/pcp_referral.py]">
+      <bpmn:incoming>Flow_PolicyMap_to_PCP</bpmn:incoming>
+      <bpmn:outgoing>Flow_PCP_to_ReferralGate</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Referral_Check"
+      name="PCP Referral Found?">
+      <bpmn:incoming>Flow_PCP_to_ReferralGate</bpmn:incoming>
+      <bpmn:outgoing>Flow_No_Referral</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Has_Referral</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:sendTask id="Task_Provider_Outreach"
+      name="Automated Provider Outreach Notification&#10;[Task Type: Send Task]&#10;[Component: Integration Service Outlook Connector]&#10;[Trigger: Missing Referral Alert]">
+      <bpmn:incoming>Flow_No_Referral</bpmn:incoming>
+      <bpmn:outgoing>Flow_Outreach_to_AwaitReferral</bpmn:outgoing>
+    </bpmn:sendTask>
+
+    <bpmn:endEvent id="End_Awaiting_Referral"
+      name="Case Suspended — Awaiting PCP Referral&#10;(Maestro: State = AWAITING_REFERRAL)">
+      <bpmn:incoming>Flow_Outreach_to_AwaitReferral</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="Task_Medical_Necessity"
+      name="Medical Necessity Validation&#10;[Task Type: Start and Wait for Agent]&#10;[Component: Agent Builder Low-Code Worker]&#10;[Checks: Surgery Pre-Auth Policy Criteria]">
+      <bpmn:incoming>Flow_Has_Referral</bpmn:incoming>
+      <bpmn:outgoing>Flow_MedNec_to_HITL</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="Task_Clinical_HITL"
+      name="Clinical Director Sign-Off (HITL)&#10;[Task Type: Create Action App Task]&#10;[Component: UiPath Apps / Action Center]&#10;[Mandatory: Surgical Prior Auth Human Approval]">
+      <bpmn:incoming>Flow_MedNec_to_HITL</bpmn:incoming>
+      <bpmn:outgoing>Flow_HITL_to_Dedup</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  STAGE 3 — COMPLEX CLAIMS ADJUDICATION                      -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+
+    <bpmn:serviceTask id="Task_Deduplication"
+      name="Anti-Fraud Duplicate Claim Audit Engine&#10;[Task Type: Service Task]&#10;[Component: Coded Agent — Python SDK]&#10;[src/agents/deduplication.py — O(n) SHA-256 Hash]">
+      <bpmn:incoming>Flow_HITL_to_Dedup</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dedup_to_DupGate</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Duplicate_Check"
+      name="Duplicate Claim Detected?">
+      <bpmn:incoming>Flow_Dedup_to_DupGate</bpmn:incoming>
+      <bpmn:outgoing>Flow_Is_Duplicate</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Not_Duplicate</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:endEvent id="End_Suspended_Duplicate"
+      name="Case Suspended — Fraud Auditor Queue&#10;(Maestro: State = SUSPENDED_DUPLICATE_CLAIM)">
+      <bpmn:incoming>Flow_Is_Duplicate</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:businessRuleTask id="Task_COB_Engine"
+      name="Coordination of Benefits (COB) Engine&#10;[Task Type: Business Rule Task]&#10;[Component: DMN Engine — Birthday Rule]&#10;[src/agents/cob_engine.py]">
+      <bpmn:incoming>Flow_Not_Duplicate</bpmn:incoming>
+      <bpmn:outgoing>Flow_COB_to_DualGate</bpmn:outgoing>
+    </bpmn:businessRuleTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Dual_Coverage"
+      name="Dual Coverage Detected?">
+      <bpmn:incoming>Flow_COB_to_DualGate</bpmn:incoming>
+      <bpmn:outgoing>Flow_Dual_Coverage</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Single_Coverage</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:endEvent id="End_COB_Split"
+      name="Secondary Claim Dispatched — COB Split Applied&#10;(Maestro: State = SUSPENDED_DUAL_COVERAGE)">
+      <bpmn:incoming>Flow_Dual_Coverage</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  STAGE 4 — RISK MITIGATION &amp; LEGAL DEFENSE              -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+
+    <bpmn:serviceTask id="Task_SSDI_Check"
+      name="Anti-Litigation Shield — SSDI / Death Master File&#10;[Task Type: Service Task]&#10;[Component: Coded Agent — Python SDK]&#10;[src/agents/compliance.py — FDCPA / TCPA Guard]">
+      <bpmn:incoming>Flow_Single_Coverage</bpmn:incoming>
+      <bpmn:outgoing>Flow_SSDI_to_DeceasedGate</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="Gateway_Deceased_Check"
+      name="Member Matched on SSDI Registry?">
+      <bpmn:incoming>Flow_SSDI_to_DeceasedGate</bpmn:incoming>
+      <bpmn:outgoing>Flow_Deceased_Halt</bpmn:outgoing>
+      <bpmn:outgoing>Flow_Clear_To_Proceed</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="Task_Legal_Estates"
+      name="Route to Legal Estates Unit (HITL)&#10;[Task Type: User Task]&#10;[Component: UiPath Action Center]&#10;[Circuit Breaker: All Outbound Billing Frozen]">
+      <bpmn:incoming>Flow_Deceased_Halt</bpmn:incoming>
+      <bpmn:outgoing>Flow_Legal_to_HaltEnd</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:endEvent id="End_Compliance_Halt"
+      name="CASE HALTED — Automated Outbound Pipelines Frozen&#10;FDCPA / TCPA Anti-Litigation Shield Activated">
+      <bpmn:incoming>Flow_Legal_to_HaltEnd</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="Task_Ledger_Integration"
+      name="Core Ledger System Integration Sync&#10;[Task Type: Service Task]&#10;[Component: API Workflow via Integration Service]&#10;[Target: Epic / Facets / QNXT + Audit Trail]">
+      <bpmn:incoming>Flow_Clear_To_Proceed</bpmn:incoming>
+      <bpmn:outgoing>Flow_Ledger_to_Success</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="End_Execution_Success"
+      name="Claim Fully Adjudicated and Integrated ✅&#10;Immutable Audit Trail Written to Maestro">
+      <bpmn:incoming>Flow_Ledger_to_Success</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!--  SEQUENCE FLOWS                                              -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <bpmn:sequenceFlow id="Flow_Start_to_DU"            sourceRef="Start_Claim_Intake"    targetRef="Task_DU_Extraction" />
+    <bpmn:sequenceFlow id="Flow_DU_to_ConfidenceGate"   sourceRef="Task_DU_Extraction"    targetRef="Gateway_Confidence_Check" />
+    <bpmn:sequenceFlow id="Flow_High_Confidence"
+      name="Score ≥ 0.85 — Direct Pass"
+      sourceRef="Gateway_Confidence_Check" targetRef="Task_AI_Trust_Masking">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">execution.getVariable('confidence') &gt;= 0.85</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Low_Confidence"
+      name="Score &lt; 0.85 — HITL Remediation"
+      sourceRef="Gateway_Confidence_Check" targetRef="Task_Validation_Station" />
+    <bpmn:sequenceFlow id="Flow_Remediated_to_Trust"    sourceRef="Task_Validation_Station"  targetRef="Task_AI_Trust_Masking" />
+    <bpmn:sequenceFlow id="Flow_Trust_to_SystemSync"    sourceRef="Task_AI_Trust_Masking"     targetRef="Task_System_Sync" />
+    <bpmn:sequenceFlow id="Flow_Sync_to_PolicyMap"      sourceRef="Task_System_Sync"          targetRef="Task_Policy_Mapper" />
+    <bpmn:sequenceFlow id="Flow_PolicyMap_to_PCP"       sourceRef="Task_Policy_Mapper"        targetRef="Task_PCP_Crawler" />
+    <bpmn:sequenceFlow id="Flow_PCP_to_ReferralGate"    sourceRef="Task_PCP_Crawler"          targetRef="Gateway_Referral_Check" />
+    <bpmn:sequenceFlow id="Flow_No_Referral"
+      name="Referral Missing"
+      sourceRef="Gateway_Referral_Check" targetRef="Task_Provider_Outreach" />
+    <bpmn:sequenceFlow id="Flow_Outreach_to_AwaitReferral" sourceRef="Task_Provider_Outreach" targetRef="End_Awaiting_Referral" />
+    <bpmn:sequenceFlow id="Flow_Has_Referral"
+      name="Referral Confirmed"
+      sourceRef="Gateway_Referral_Check" targetRef="Task_Medical_Necessity" />
+    <bpmn:sequenceFlow id="Flow_MedNec_to_HITL"         sourceRef="Task_Medical_Necessity"    targetRef="Task_Clinical_HITL" />
+    <bpmn:sequenceFlow id="Flow_HITL_to_Dedup"          sourceRef="Task_Clinical_HITL"        targetRef="Task_Deduplication" />
+    <bpmn:sequenceFlow id="Flow_Dedup_to_DupGate"       sourceRef="Task_Deduplication"        targetRef="Gateway_Duplicate_Check" />
+    <bpmn:sequenceFlow id="Flow_Is_Duplicate"
+      name="Duplicate Confirmed"
+      sourceRef="Gateway_Duplicate_Check" targetRef="End_Suspended_Duplicate">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">execution.getVariable('isDuplicate') == true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Not_Duplicate"
+      name="Unique Claim — Clear"
+      sourceRef="Gateway_Duplicate_Check" targetRef="Task_COB_Engine" />
+    <bpmn:sequenceFlow id="Flow_COB_to_DualGate"        sourceRef="Task_COB_Engine"           targetRef="Gateway_Dual_Coverage" />
+    <bpmn:sequenceFlow id="Flow_Dual_Coverage"
+      name="Dual Coverage Detected"
+      sourceRef="Gateway_Dual_Coverage" targetRef="End_COB_Split">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">execution.getVariable('dualCoverage') == true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Single_Coverage"
+      name="Single Coverage — Proceed"
+      sourceRef="Gateway_Dual_Coverage" targetRef="Task_SSDI_Check" />
+    <bpmn:sequenceFlow id="Flow_SSDI_to_DeceasedGate"   sourceRef="Task_SSDI_Check"           targetRef="Gateway_Deceased_Check" />
+    <bpmn:sequenceFlow id="Flow_Deceased_Halt"
+      name="SSDI Match — CRITICAL HALT"
+      sourceRef="Gateway_Deceased_Check" targetRef="Task_Legal_Estates">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">execution.getVariable('isDeceased') == true</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="Flow_Clear_To_Proceed"
+      name="Cleared — Proceed to Integration"
+      sourceRef="Gateway_Deceased_Check" targetRef="Task_Ledger_Integration" />
+    <bpmn:sequenceFlow id="Flow_Legal_to_HaltEnd"       sourceRef="Task_Legal_Estates"        targetRef="End_Compliance_Halt" />
+    <bpmn:sequenceFlow id="Flow_Ledger_to_Success"      sourceRef="Task_Ledger_Integration"   targetRef="End_Execution_Success" />
+
+  </bpmn:process>
+</bpmn:definitions>
